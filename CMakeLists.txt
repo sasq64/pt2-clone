@@ -6,29 +6,24 @@ find_package(SDL2 REQUIRED)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${pt2-clone_SOURCE_DIR}/release/other/")
 
 if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "GNU"))
-    add_compile_options(-O3)
-    add_compile_options(-ffast-math)
+	add_compile_options(-O3)
+	add_compile_options(-ffast-math)
 endif()
 
 file(GLOB pt2-clone_SRC
-    "${pt2-clone_SOURCE_DIR}/src/*.c"
-    "${pt2-clone_SOURCE_DIR}/src/modloaders/*.c"
-    "${pt2-clone_SOURCE_DIR}/src/smploaders/*.c"
-    "${pt2-clone_SOURCE_DIR}/src/gfx/*.c"
+	"${pt2-clone_SOURCE_DIR}/src/*.c"
+	"${pt2-clone_SOURCE_DIR}/src/modloaders/*.c"
+	"${pt2-clone_SOURCE_DIR}/src/smploaders/*.c"
+	"${pt2-clone_SOURCE_DIR}/src/gfx/*.c"
 )
 
 add_executable(pt2-clone ${pt2-clone_SRC})
-
-target_include_directories(pt2-clone SYSTEM
-    PRIVATE ${SDL2_INCLUDE_DIRS})
+target_include_directories(pt2-clone SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS})
 
 if("${SDL2_LIBRARIES}" STREQUAL "")
-    message(WARNING "SDL2_LIBRARIES wasn't set, manually setting to SDL2::SDL2")
-    set(SDL2_LIBRARIES "SDL2::SDL2")
+	message(WARNING "SDL2_LIBRARIES wasn't set, manually setting to SDL2::SDL2")
+	set(SDL2_LIBRARIES "SDL2::SDL2")
 endif()
 
-target_link_libraries(pt2-clone
-    PRIVATE m ${SDL2_LIBRARIES})
-
-install(TARGETS pt2-clone
-    RUNTIME DESTINATION bin)
+target_link_libraries(pt2-clone PRIVATE m ${SDL2_LIBRARIES})
+install(TARGETS pt2-clone RUNTIME DESTINATION bin)
