@@ -1,15 +1,16 @@
-
+.DS_Store
+release/macos/pt2-clone-macos.app/Contents/MacOS/pt2-clone-macos
+pt_pal_editor/release/macos/pt_pal_editor-macos.app/Contents/MacOS/pt_pal_editor-macos
 vs2026_project/.vs/*
 vs2026_project/enc_temp_folder/*
 vs2026_project/pt2-clone/Release/*
 vs2026_project/pt2-clone/Debug/*
-vs2026_project/pt2-clone/x64/Debug/pt2-clone.vcxproj.FileListAbsolute.txt
+vs2026_project/pt2-clone/x64/*
 pt_pal_editor/vs2019_project/.vs/*
 pt_pal_editor/vs2019_project/enc_temp_folder/*
 pt_pal_editor/vs2019_project/pt_pal_editor/Release/*
 pt_pal_editor/vs2019_project/pt_pal_editor/Debug/*
-pt_pal_editor/vs2019_project/pt_pal_editor/x64/Debug/pt_pal_editor.vcxproj.FileListAbsolute.txt
-.DS_Store
+pt_pal_editor/vs2019_project/pt_pal_editor/x64/*
 *.exe
 *.db
 *.ilk
@@ -28,4 +29,4 @@ pt_pal_editor/vs2019_project/pt_pal_editor/x64/Debug/pt_pal_editor.vcxproj.FileL
 *.recipe
 *.iobj
 *.enc
-release/macos/pt2-clone-macos.app/Contents/MacOS/pt2-clone-macos
+
