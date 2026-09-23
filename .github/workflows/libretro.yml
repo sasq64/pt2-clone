@@ -190,6 +190,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: latest
+      # Not a directory in the checkout: pt2-clone ships one called release/
+      # already, and everything in it would go up as an asset.
+      RELEASE_DIR: ${{ runner.temp }}/release
     steps:
       - name: Check out repository code
         uses: actions/checkout@v6
@@ -205,16 +208,16 @@ jobs:
       - name: Stage release assets
         run: |
           set -euo pipefail
-          mkdir -p release
+          mkdir -p "$RELEASE_DIR"
           zip_core() {
             artifact="$1"
             core="$2"
-            (cd "dist/$artifact" && zip -9 -X "$GITHUB_WORKSPACE/release/$artifact.zip" "$core")
+            (cd "dist/$artifact" && zip -9 -X "$RELEASE_DIR/$artifact.zip" "$core")
           }
           zip_core pt2clone_libretro-linux-x86_64 pt2clone_libretro.so
           zip_core pt2clone_libretro-macos-arm64 pt2clone_libretro.dylib
           zip_core pt2clone_libretro-windows-x64 pt2clone_libretro.dll
-          ls -l release
+          ls -l "$RELEASE_DIR"
 
       - name: Write manifest.json
         run: |
@@ -241,8 +244,10 @@ jobs:
               "run_id": os.environ["GITHUB_RUN_ID"],
               "cores": {},
           }
+          release_dir = pathlib.Path(os.environ["RELEASE_DIR"])
+
           for platform, (name, core) in assets.items():
-              data = pathlib.Path("release", name).read_bytes()
+              data = (release_dir / name).read_bytes()
               manifest["cores"][platform] = {
                   "file": name,
                   "core": core,
@@ -251,9 +256,9 @@ jobs:
                   "sha256": hashlib.sha256(data).hexdigest(),
               }
 
-          pathlib.Path("release/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          (release_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
           PY
-          cat release/manifest.json
+          cat "$RELEASE_DIR/manifest.json"
 
       - name: Move the rolling tag
         run: |
@@ -270,4 +275,4 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --title "libretro core (latest)" --notes "$NOTES" --latest
           fi
-          gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release upload "$RELEASE_TAG" "$RELEASE_DIR"/* --clobber
