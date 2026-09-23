@@ -14,12 +14,25 @@
 */
 #define SDL_MAIN_HANDLED
 
+#ifdef _WIN32
+/* The whole of windows.h, which is what pt2-clone's own include amounts to
+** (its WIN32_MEAN_AND_LEAN is a typo). No unistd.h: MSVC has none, so
+** pt2_hpc.c is free to name a function pointer usleep, and mingw's declaration
+** of the real one collides with it.
+*/
+#include <windows.h>
+
+/* pt2_hpc.c pulls a finer usleep out of ntdll and needs the type its calls
+** return. The Windows SDK has it in winnt.h; mingw-w64 leaves it to headers
+** that also declare half of ntdll, which is more than a function pointer named
+** NtDelayExecution can live beside.
+*/
+#ifndef NTSTATUS
+typedef LONG NTSTATUS;
+#endif
+#else
 #include <signal.h>
 #include <unistd.h>
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #endif
 
 #include "pt2_libretro.h"
@@ -30,14 +43,17 @@
 #define main pt2_clone_main
 
 /* The working directory belongs to the frontend, which resolves relative paths
-** of its own while the core runs.
+** of its own while the core runs. Windows walks it through the wide calls
+** below instead, and never calls chdir() at all.
 */
+#ifndef _WIN32
 #define chdir(path) pt2lr_chdir(path)
 
 /* A crash handler is the host's business, and this one writes a backup module
 ** into whatever directory it lands in before handing the signal back.
 */
 #define sigaction(signum, act, oldact) (0)
+#endif
 
 #ifdef _WIN32
 #define SetUnhandledExceptionFilter(filter) ((void)0)

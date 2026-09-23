@@ -67,14 +67,22 @@ target_compile_options(pt2clone_libretro PRIVATE
 find_package(Threads REQUIRED)
 target_link_libraries(pt2clone_libretro PRIVATE m Threads::Threads)
 
-# Keeping the SDL2 replacement to ourselves, three ways of saying the same
-# thing. Only ELF can have our calls resolved against a frontend's real libSDL2,
-# so only ELF needs the version script; ld64 and PE both bind a library's calls
-# to its own definitions, and there the hidden visibility the target is built
-# with -- plus the default visibility libretro.h puts back on the entry points
-# -- is the whole of it.
+# What the tracker's own Windows code calls into: the error box and the SSE
+# check are user32, the disk op.'s home directory is shell32.
+if(WIN32)
+    target_link_libraries(pt2clone_libretro PRIVATE user32 shell32)
+endif()
+
+# Keeping the SDL2 replacement to ourselves. Hidden visibility does not do it
+# on its own: SDL's headers declare every SDL_ call with default visibility of
+# its own (begin_code.h), which is why ELF and Mach-O both need a list of what
+# may leave. PE is the exception -- there DECLSPEC is empty and only the
+# dllexport libretro.h puts on the entry points is left, so --exclude-all-symbols
+# has nothing to take away but the compiler's auto-exports.
 if(APPLE)
     set_target_properties(pt2clone_libretro PROPERTIES SUFFIX ".dylib")
+    target_link_options(pt2clone_libretro PRIVATE
+        "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/link.exp")
 elseif(WIN32)
     target_link_options(pt2clone_libretro PRIVATE -Wl,--exclude-all-symbols)
 else()
