@@ -1,0 +1,273 @@
+name: libretro core
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [libretro]
+    paths-ignore:
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x86_64:
+    name: Linux x86_64
+    # Oldest supported runner, so the core links against an older glibc and
+    # stays loadable on the widest range of frontends.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v6
+
+      # SDL2 for its headers only -- nothing links against the library, the
+      # tracker's SDL2 is libretro/sdl_shim.c.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config libsdl2-dev file
+
+      - name: Build core
+        run: |
+          cmake -S libretro -B libretro/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          ninja -C libretro/build
+
+      - name: Inspect core
+        run: |
+          set -euo pipefail
+          core=libretro/build/pt2clone_libretro.so
+          file "$core"
+          ls -l "$core"
+          # The shim is the point: a core that ended up needing the real SDL2
+          # would be one built against a header set that no longer matches it.
+          if ldd "$core" | grep -qi 'libSDL2'; then
+            echo "the core links libSDL2" >&2
+            ldd "$core" >&2
+            exit 1
+          fi
+          # Everything but retro_* is local, so our SDL_* cannot be resolved
+          # against a frontend's real ones (or the other way round).
+          nm -D --defined-only "$core" | grep -q ' T retro_run'
+          if nm -D --defined-only "$core" | grep -qv ' retro_'; then
+            echo "the core exports more than its entry points" >&2
+            nm -D --defined-only "$core" >&2
+            exit 1
+          fi
+
+      - name: Upload core
+        uses: actions/upload-artifact@v7
+        with:
+          name: pt2clone_libretro-linux-x86_64
+          path: libretro/build/pt2clone_libretro.so
+          if-no-files-found: error
+
+  macos-arm64:
+    name: macOS arm64
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          brew install ninja pkgconf sdl2
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Build core
+        run: |
+          cmake -S libretro -B libretro/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          ninja -C libretro/build
+
+      - name: Inspect core
+        run: |
+          set -euo pipefail
+          core=libretro/build/pt2clone_libretro.dylib
+          file "$core"
+          ls -l "$core"
+          if otool -L "$core" | grep -qi 'SDL2'; then
+            echo "the core links SDL2" >&2
+            otool -L "$core" >&2
+            exit 1
+          fi
+          # ld64 binds the library's calls to its own definitions, so hidden
+          # visibility is enough here -- but it has to actually hold.
+          nm -gU "$core" | grep -q '_retro_run'
+          if nm -gU "$core" | grep -q '_SDL_'; then
+            echo "the core exports its SDL2 replacement" >&2
+            nm -gU "$core" >&2
+            exit 1
+          fi
+
+      - name: Upload core
+        uses: actions/upload-artifact@v7
+        with:
+          name: pt2clone_libretro-macos-arm64
+          path: libretro/build/pt2clone_libretro.dylib
+          if-no-files-found: error
+
+  windows-x64:
+    name: Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v6
+
+      # UCRT64 rather than MINGW64: the frontend loading this DLL is an MSVC
+      # build, and that is the environment whose C runtime is the same one.
+      - name: Set up MSYS2 (UCRT64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          release: false
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-SDL2
+
+      - name: Build core
+        run: |
+          cmake -S libretro -B libretro/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          ninja -C libretro/build
+
+      - name: Inspect core
+        run: |
+          set -euo pipefail
+          core=libretro/build/pt2clone_libretro.dll
+          file "$core"
+          ls -l "$core"
+          if objdump -p "$core" | grep -i 'DLL Name' | grep -qi 'SDL2'; then
+            echo "the core imports SDL2.dll" >&2
+            objdump -p "$core" | grep -i 'DLL Name' >&2
+            exit 1
+          fi
+          # PE has no interposition, so --exclude-all-symbols is only tidiness:
+          # what matters is that the entry points libretro.h marks dllexport
+          # are the ones that came out.
+          objdump -p "$core" | grep -q '\bretro_run\b'
+          if objdump -p "$core" | grep -q '\bSDL_Init\b'; then
+            echo "the core exports its SDL2 replacement" >&2
+            exit 1
+          fi
+
+      - name: Upload core
+        uses: actions/upload-artifact@v7
+        with:
+          name: pt2clone_libretro-windows-x64
+          path: libretro/build/pt2clone_libretro.dll
+          if-no-files-found: error
+
+  # Publishes the three cores to a rolling "latest" release, so a frontend can
+  # fetch them from a URL that never changes -- demarc's src/libloader.rs
+  # ALT_SOURCES. Both of these resolve to the newest successful build:
+  #   https://github.com/sasq64/pt2-clone/releases/download/latest/<asset>
+  #   https://github.com/sasq64/pt2-clone/releases/latest/download/<asset>
+  # manifest.json lists each zip with its size and sha256.
+  publish:
+    name: Publish rolling release
+    needs: [linux-x86_64, macos-arm64, windows-x64]
+    if: github.ref == 'refs/heads/libretro'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v6
+
+      - name: Download built cores
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+
+      # One zip per platform, each holding the core under the plain name the
+      # libretro buildbot would have given it, so nothing downstream has to know
+      # this core comes from somewhere else.
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          zip_core() {
+            artifact="$1"
+            core="$2"
+            (cd "dist/$artifact" && zip -9 -X "$GITHUB_WORKSPACE/release/$artifact.zip" "$core")
+          }
+          zip_core pt2clone_libretro-linux-x86_64 pt2clone_libretro.so
+          zip_core pt2clone_libretro-macos-arm64 pt2clone_libretro.dylib
+          zip_core pt2clone_libretro-windows-x64 pt2clone_libretro.dll
+          ls -l release
+
+      - name: Write manifest.json
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, re, pathlib
+
+          version = "0.0.0"
+          m = re.search(r'PROG_VER_STR\s+"([^"]+)"',
+                        pathlib.Path("src/pt2_header.h").read_text())
+          if m:
+              version = m.group(1)
+
+          assets = {
+              "linux-x86_64": ("pt2clone_libretro-linux-x86_64.zip", "pt2clone_libretro.so"),
+              "macos-arm64":  ("pt2clone_libretro-macos-arm64.zip", "pt2clone_libretro.dylib"),
+              "windows-x64":  ("pt2clone_libretro-windows-x64.zip", "pt2clone_libretro.dll"),
+          }
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{os.environ['RELEASE_TAG']}"
+
+          manifest = {
+              "version": version,
+              "commit": os.environ["GITHUB_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "cores": {},
+          }
+          for platform, (name, core) in assets.items():
+              data = pathlib.Path("release", name).read_bytes()
+              manifest["cores"][platform] = {
+                  "file": name,
+                  "core": core,
+                  "url": f"{base}/{name}",
+                  "size": len(data),
+                  "sha256": hashlib.sha256(data).hexdigest(),
+              }
+
+          pathlib.Path("release/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+          cat release/manifest.json
+
+      - name: Move the rolling tag
+        run: |
+          set -euo pipefail
+          git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$RELEASE_TAG"
+
+      - name: Publish release
+        run: |
+          set -euo pipefail
+          NOTES="Rolling build of pt2-clone as a libretro core from \`$GITHUB_SHA\` — see manifest.json for the version and checksums."
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "libretro core (latest)" --notes "$NOTES" --latest
+          else
+            gh release create "$RELEASE_TAG" --title "libretro core (latest)" --notes "$NOTES" --latest
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
