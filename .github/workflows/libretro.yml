@@ -190,12 +190,14 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: latest
-      # Not a directory in the checkout: pt2-clone ships one called release/
-      # already, and everything in it would go up as an asset.
-      RELEASE_DIR: ${{ runner.temp }}/release
     steps:
       - name: Check out repository code
         uses: actions/checkout@v6
+
+      # Staged outside the checkout: pt2-clone ships a release/ directory of its
+      # own, and everything in it would go up as an asset.
+      - name: Set up paths
+        run: echo "RELEASE_DIR=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
 
       - name: Download built cores
         uses: actions/download-artifact@v8
