@@ -665,9 +665,24 @@ static void *thread_trampoline(void *arg)
 	return NULL;
 }
 
+/* On Windows SDL_CreateThread is a macro handing SDL the CRT's _beginthreadex
+** and _endthreadex, so the entry point behind it takes two arguments more than
+** it does anywhere else. SDL_PASSED_BEGINTHREAD_ENDTHREAD is what the header
+** sets when it does that.
+*/
+#ifdef SDL_PASSED_BEGINTHREAD_ENDTHREAD
+#undef SDL_CreateThread
+SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *name, void *data,
+                             pfnSDL_CurrentBeginThread pfnBeginThread,
+                             pfnSDL_CurrentEndThread pfnEndThread)
+#else
 SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *name, void *data)
+#endif
 {
 	(void)name;
+#ifdef SDL_PASSED_BEGINTHREAD_ENDTHREAD
+	(void)pfnBeginThread; (void)pfnEndThread;
+#endif
 
 	shim_thread_t *thread = (shim_thread_t *)calloc(1, sizeof (shim_thread_t));
 	if (thread == NULL)

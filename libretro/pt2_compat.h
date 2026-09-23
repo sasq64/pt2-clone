@@ -30,6 +30,11 @@
 #ifndef NTSTATUS
 typedef LONG NTSTATUS;
 #endif
+
+/* mingw's limits.h has one and pt2_header.h redefines it to MAX_PATH, which is
+** the same 260 and a warning in every translation unit that includes both.
+*/
+#undef PATH_MAX
 #else
 #include <signal.h>
 #include <unistd.h>
